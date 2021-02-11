@@ -48,7 +48,7 @@ extern void net_if_carrier_down(struct net_if *iface);
 extern void net_if_stats_reset(struct net_if *iface);
 extern void net_if_stats_reset_all(void);
 
-#if defined(CONFIG_NET_NATIVE) || defined(CONFIG_NET_OFFLOAD)
+#if defined(CONFIG_NET_NATIVE) || defined(CONFIG_NET_OFFLOAD) || defined(CONFIG_NET_REMOTE)
 extern void net_context_init(void);
 extern const char *net_context_state(struct net_context *context);
 extern void net_pkt_init(void);

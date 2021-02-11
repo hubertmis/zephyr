@@ -157,6 +157,7 @@ void add_ipv6_addr_to_zephyr(struct openthread_context *context)
 	}
 }
 
+#if !defined(CONFIG_NET_REMOTE)
 void add_ipv6_addr_to_ot(struct openthread_context *context)
 {
 	struct net_if *iface = context->iface;
@@ -212,6 +213,7 @@ void add_ipv6_addr_to_ot(struct openthread_context *context)
 						 sizeof(buf))));
 	}
 }
+#endif
 
 void add_ipv6_maddr_to_ot(struct openthread_context *context)
 {

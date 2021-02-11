@@ -1,0 +1,29 @@
+# Config options for OpenThread Border Router sample app
+
+# Copyright (c) 2020 Tridonic GmbH & Co KG
+# SPDX-License-Identifier: Apache-2.0
+
+mainmenu "OpenThread NCP"
+
+menu "Application configuration"
+
+config NET_SAMPLE_APPLICATION_VERSION
+	string "Version number for the application"
+	default "v0.0.0"
+
+config NET_REMOTE
+	bool "Remote network stack"
+	select NET_RAW_MODE
+
+choice NET_REMOTE_METHOD
+	prompt "Connection method to the remote network stack"
+	depends on NET_REMOTE
+
+config NET_REMOTE_METHOD_APP
+	bool "Remote network stack connected by proprietary application method"
+
+endchoice
+
+endmenu
+
+source "Kconfig.zephyr"
