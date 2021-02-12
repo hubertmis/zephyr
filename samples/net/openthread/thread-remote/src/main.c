@@ -78,6 +78,33 @@ int net_bytes_from_str(uint8_t *buf, int buf_len, const char *src)
 	return 0;
 }
 
+////////// TEST UART_MUX ////////////////////
+
+#include <drivers/console/uart_mux.h>
+
+void mux_attach_cb(const struct device *mux, int dlci_address, bool connected, void *user_data)
+{
+    // Intentionally empty
+}
+
+void uart_mux_init(void)
+{
+    int r;
+    const struct device *uart_dev = device_get_binding("uart1");
+
+	if (!uart_dev) {
+		return;
+	}
+
+    const struct device *mux_dev = uart_mux_alloc();
+
+
+    r = uart_mux_attach(mux_dev, uart_dev, 0, mux_attach_cb, NULL);
+    if (!r) {
+        return;
+    }
+}
+
 void main(void)
 {
 #if defined(CONFIG_OPENTHREAD_COPROCESSOR_SPINEL_ON_UART_ACM)
