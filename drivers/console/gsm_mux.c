@@ -1470,7 +1470,7 @@ struct gsm_mux *gsm_mux_create(const struct device *uart)
 		mux->t1_timeout_value = CONFIG_GSM_MUX_T1_TIMEOUT ?
 			CONFIG_GSM_MUX_T1_TIMEOUT : T1_MSEC;
 		mux->t2_timeout_value = T2_MSEC;
-		mux->is_initiator = CONFIG_GSM_MUX_INITIATOR;
+		mux->is_initiator = IS_ENABLED(CONFIG_GSM_MUX_INITIATOR);
 		mux->state = GSM_MUX_SOF;
 		mux->buf = NULL;
 
