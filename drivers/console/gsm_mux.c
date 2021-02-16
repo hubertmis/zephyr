@@ -423,9 +423,10 @@ static int gsm_mux_send_control_msg(struct gsm_mux *mux, bool cmd,
 				    uint8_t dlci_address, uint8_t frame_type)
 {
 	uint8_t buf[6];
+    uint8_t cr_bit = cmd ^ IS_ENABLED(CONFIG_GSM_MUX_INITIATOR) ? 0x00 : 0x02;
 
 	buf[0] = SOF_MARKER;
-	buf[1] = (dlci_address << 2) | ((uint8_t)cmd << 1) | EA;
+	buf[1] = (dlci_address << 2) | cr_bit | EA;
 	buf[2] = frame_type;
 	buf[3] = EA;
 	buf[4] = 0xFF - gsm_mux_fcs_add_buf(FCS_INIT_VALUE, buf + 1, 3);

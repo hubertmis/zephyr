@@ -22,6 +22,7 @@ LOG_MODULE_REGISTER(ot_br, LOG_LEVEL_DBG);
 #define APP_BANNER "***** OpenThread NCP on Zephyr %s *****"
 
 static const struct device *mux_dev;
+struct net_if *global_iface;
 
 
 int net_recv_data (struct net_if *iface, struct net_pkt *pkt)
@@ -60,6 +61,8 @@ int net_recv_data (struct net_if *iface, struct net_pkt *pkt)
         buf = net_buf_frag_last(pkt->buffer);
 
         uart_fifo_fill(mux_dev, buf->data, buf->len);
+        // TODO: Wait until packet is sent?
+        net_pkt_unref(pkt);
     }
     return 0;
 }
@@ -125,7 +128,8 @@ static void interrupt_handler(const struct device *dev, void *user_data)
 
     while (uart_irq_update(dev) && uart_irq_is_pending(dev)) {
         int len;
-        unsigned char buffer[1500];
+        unsigned char buffer[1500]; // TODO: Static buffer? Can I move copy directly to pkt?
+        struct net_pkt *pkt;
 
         if (!uart_irq_rx_ready(dev)) {
             continue;
@@ -133,11 +137,30 @@ static void interrupt_handler(const struct device *dev, void *user_data)
 
         while (len = uart_fifo_read(dev, buffer, sizeof(buffer))) {
             if (len > 0) {
-                printk("Received buffer:");
-                for (int i = 0; i < len; ++i) {
-                    printk(" %02x", buffer[i]);
+
+                // TODO: Get AF_... based on metadata
+                pkt = net_pkt_rx_alloc_with_buffer(global_iface, len, AF_INET6, 0, K_FOREVER);
+
+                if (net_pkt_write(pkt, buffer, len)) {
+                    goto drop;
                 }
-                printk("\n");
+
+                // Pass frame down to OpenThread
+                if (!net_if_l2(global_iface) || !net_if_l2(global_iface)->send) {
+                    goto drop;
+                }
+
+                len = net_if_l2(global_iface)->send(global_iface, pkt);
+                if (len < 0) {
+                    goto drop;
+                }
+
+                continue;
+drop:
+                if (pkt) {
+                    net_pkt_unref(pkt);
+                }
+
             }
         }
     }
@@ -167,6 +190,8 @@ void uart_mux_init(void)
 
     uart_irq_callback_set(mux_dev, interrupt_handler);
 
+    /* Disable tx interrupts */
+    uart_irq_tx_disable(mux_dev);
     /* Enable rx interrupts */
     uart_irq_rx_enable(mux_dev);
 }
@@ -252,6 +277,12 @@ void main(void)
     uart_mux_init();
 
     Z_STRUCT_SECTION_FOREACH(net_if, iface) {
+        if (!global_iface) {
+            // There should be only one iface
+            // TODO: Extend it to support multiple ifaces, one serialization transport (device?) per iface
+            global_iface = iface;
+        }
+
         init_iface(iface);
         if (!net_if_flag_is_set(iface, NET_IF_NO_AUTO_START)) {
             net_if_up(iface);

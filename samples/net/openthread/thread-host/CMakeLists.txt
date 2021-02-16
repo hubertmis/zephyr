@@ -8,6 +8,7 @@ project(ncp)
 target_sources( app
     PRIVATE
         src/main.c
+        src/netif_uartmux/netif_uartmux.c
 )
 
 include(${ZEPHYR_BASE}/samples/net/common/common.cmake)
