@@ -57,8 +57,15 @@ static int send(const struct device *dev, struct net_pkt *pkt)
     int len;
     struct uartmux_netif_data *data = DATA(dev);
     struct net_buf *buf = net_buf_frag_last(pkt->buffer);
+    uint8_t buffer[1500];
 
-    len = uart_fifo_fill(data->mux_dev, buf->data, buf->len);
+    if (buf->len > sizeof(buffer) - 1) {
+        return -EINVAL;
+    }
+
+    buffer[0] = 2;
+    memcpy(buffer + 1, buf->data, buf->len);
+    len = uart_fifo_fill(data->mux_dev, buffer, buf->len + 1);
 
     // TODO: Wait until UART TX is completed?
     net_pkt_unref(pkt);
@@ -66,34 +73,114 @@ static int send(const struct device *dev, struct net_pkt *pkt)
     return len;
 }
 
+static void send_ack(struct uartmux_netif_data *data)
+{
+    uint8_t result = 0;
+    int len;
+
+    len = uart_fifo_fill(data->mux_dev, &result, sizeof(result));
+    (void)len;
+}
+
+static void send_nack(struct uartmux_netif_data *data)
+{
+    uint8_t result = 1;
+    int len;
+
+    len = uart_fifo_fill(data->mux_dev, &result, sizeof(result));
+    (void)len;
+}
+
+static void rcvd_dgram(struct uartmux_netif_data *data, size_t len)
+{
+    struct net_pkt *pkt;
+
+    // TODO: Use AF_UNSPEC here and update in proper L2
+    pkt = net_pkt_rx_alloc_with_buffer(data->iface, len - 1, AF_INET6, 0, K_FOREVER);
+
+    if (net_pkt_write(pkt, data->buffer + 1, len - 1)) {
+        goto drop;
+    }
+
+    if (net_recv_data(data->iface, pkt) < 0) {
+        goto drop;
+    }
+
+drop:
+    if (pkt) {
+        net_pkt_unref(pkt);
+    }
+}
+
+static void rcvd_add_ipv6_addr(struct uartmux_netif_data *data, size_t len)
+{
+    struct in6_addr *addr;
+    enum net_addr_type addr_type;
+    uint32_t vlifetime;
+    bool mesh_local;
+    struct net_if_addr *result;
+    int i = 1;
+
+    if (len != (1 + sizeof(*addr) + sizeof(uint32_t) + sizeof(vlifetime) + sizeof(uint8_t))) {
+        send_nack(data);
+        return;
+    }
+
+    addr = (struct in6_addr *)(data->buffer + i);
+    i += sizeof(*addr);
+
+    addr_type = (enum net_addr_type)(*(uint32_t *)(data->buffer + i));
+    i += sizeof(uint32_t);
+
+    vlifetime = *data->buffer + i;
+    i += sizeof(vlifetime);
+
+    mesh_local = (bool)*(data->buffer + i);
+    i += sizeof(uint8_t);
+
+    result = net_if_ipv6_addr_add(data->iface, addr, addr_type, vlifetime);
+
+    if (result) {
+        result->is_mesh_local = mesh_local;
+
+        send_ack(data);
+    } else {
+        send_nack(data);
+    }
+}
+
+static void rcvd_ser_data(struct uartmux_netif_data *data, size_t len)
+{
+    if (len < 1) {
+        return;
+    }
+
+    switch (data->buffer[0]) {
+        case 2:
+            rcvd_dgram(data, len);
+            break;
+
+        case 3:
+            rcvd_add_ipv6_addr(data, len);
+            break;
+    }
+}
+
 static void rx_entry_point(void *arg1, void *arg2, void *arg3)
 {
     struct uartmux_netif_data *data = arg1;
     size_t len;
-    struct net_pkt *pkt;
+    int ret;
 
     while (1)
     {
-        k_sem_take(&rx_sem, K_FOREVER);
-        len = data->buffer_len;
+        ret = k_sem_take(&rx_sem, K_FOREVER);
+        __ASSERT_NO_MSG(ret == 0);
 
+        len = data->buffer_len;
         __ASSERT_NO_MSG(len <= CONFIG_NET_BUF_DATA_SIZE);
 
-        // TODO: Use AF_UNSPEC here and update in proper L2
-        pkt = net_pkt_rx_alloc_with_buffer(data->iface, len, AF_INET6, 0, K_FOREVER);
-
-        if (net_pkt_write(pkt, data->buffer, len)) {
-            goto drop;
-        }
-
-        if (net_recv_data(data->iface, pkt) < 0) {
-            goto drop;
-        }
-
-drop:
-        if (pkt) {
-            net_pkt_unref(pkt);
-        }
+        rcvd_ser_data(data, len);
     }
 }
 
@@ -168,6 +255,12 @@ static void iface_init(struct net_if *iface)
 {
     const struct device *dev = net_if_get_device(iface);
     struct uartmux_netif_data *data = DATA(dev);
+
+    // TODO: This iface shall not be automatically up. It should be set up after handshake
+    // During handshake it should retrieve link address and type from the remote part
+    uint64_t link_addr = 0x0123456789abcdef;
+    net_if_set_link_addr(iface, &link_addr, sizeof(link_addr),
+                 NET_LINK_IEEE802154);
 
     data->iface = iface;
 }

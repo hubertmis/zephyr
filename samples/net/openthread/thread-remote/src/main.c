@@ -24,6 +24,8 @@ LOG_MODULE_REGISTER(ot_br, LOG_LEVEL_DBG);
 static const struct device *mux_dev;
 struct net_if *global_iface;
 
+uint8_t rsp[128];
+K_SEM_DEFINE(rsp_sem, 0, 1);
 
 int net_recv_data (struct net_if *iface, struct net_pkt *pkt)
 {
@@ -57,10 +59,18 @@ int net_recv_data (struct net_if *iface, struct net_pkt *pkt)
 
     if (verd == NET_CONTINUE) {
         struct net_buf *buf;
+        static uint8_t buffer[1500];
 
         buf = net_buf_frag_last(pkt->buffer);
 
-        uart_fifo_fill(mux_dev, buf->data, buf->len);
+        if (buf->len > sizeof(buffer) - 1) {
+            return -EINVAL;
+        }
+
+        buffer[0] = 2;
+        memcpy(buffer + 1, buf->data, buf->len);
+
+        uart_fifo_fill(mux_dev, buffer, buf->len + 1);
         // TODO: Wait until packet is sent?
         net_pkt_unref(pkt);
     }
@@ -68,10 +78,34 @@ int net_recv_data (struct net_if *iface, struct net_pkt *pkt)
 }
 
 
-struct net_if_addr* net_if_ipv6_addr_add (struct net_if * iface, struct in6_addr * addr, enum net_addr_type addr_type, uint32_t vlifetime)
+int net_remote_ipv6_addr_add(struct in6_addr * addr, enum net_addr_type addr_type, uint32_t vlifetime, bool mesh_local)
 {
-    // TODO: Send address over UART
-    return NULL;
+    uint8_t buffer[1500];
+    int i = 0;
+
+    buffer[i++] = 3;
+    memcpy(buffer + i, addr, sizeof(*addr));
+    i += sizeof(*addr);
+
+    *(uint32_t*)(buffer + i) = (uint32_t)addr_type;
+    i += sizeof(uint32_t);
+
+    *(uint32_t*)(buffer + i) = vlifetime;
+    i += sizeof(uint32_t);
+
+    *(uint8_t*)(buffer + i) = (uint8_t)mesh_local;
+    i += sizeof(uint8_t);
+
+    uart_fifo_fill(mux_dev, buffer, i);
+
+    // TODO: Timeout, and handle it
+    k_sem_take(&rsp_sem, K_FOREVER);
+
+    if (rsp[0] == 0) {
+        return 0;
+    }
+
+    return -ENOMEM;
 }
 
 struct net_if_mcast_addr* net_if_ipv6_maddr_lookup (const struct in6_addr * addr, struct net_if ** iface)
@@ -122,14 +156,72 @@ int net_bytes_from_str(uint8_t *buf, int buf_len, const char *src)
 
 #include <drivers/console/uart_mux.h>
 
+static void rcvd_ack(uint8_t *buffer, int len)
+{
+    rsp[0] = 0;
+    k_sem_give(&rsp_sem);
+}
+
+static void rcvd_nack(uint8_t *buffer, int len)
+{
+    rsp[0] = 1;
+    k_sem_give(&rsp_sem);
+}
+
+static void rcvd_dgram(uint8_t *buffer, int len)
+{
+    struct net_pkt *pkt;
+
+    // TODO: Get AF_... based on metadata
+    pkt = net_pkt_rx_alloc_with_buffer(global_iface, len, AF_INET6, 0, K_FOREVER);
+
+    if (net_pkt_write(pkt, buffer, len)) {
+        goto drop;
+    }
+
+    // Pass frame down to OpenThread
+    if (!net_if_l2(global_iface) || !net_if_l2(global_iface)->send) {
+        goto drop;
+    }
+
+    len = net_if_l2(global_iface)->send(global_iface, pkt);
+    if (len < 0) {
+        goto drop;
+    }
+
+    return;
+
+drop:
+    if (pkt) {
+        net_pkt_unref(pkt);
+    }
+
+}
+
+static void rcvd_ser_data(uint8_t *buffer, int len)
+{
+    switch (buffer[0]) {
+        case 0:
+            rcvd_ack(buffer + 1, len - 1);
+            break;
+
+        case 1:
+            rcvd_nack(buffer + 1, len - 1);
+            break;
+
+        case 2:
+            rcvd_dgram(buffer + 1, len - 1);
+            break;
+    }
+}
+
 static void interrupt_handler(const struct device *dev, void *user_data)
 {
     ARG_UNUSED(user_data);
 
     while (uart_irq_update(dev) && uart_irq_is_pending(dev)) {
         int len;
-        unsigned char buffer[1500]; // TODO: Static buffer? Can I move copy directly to pkt?
-        struct net_pkt *pkt;
+        static unsigned char buffer[1500]; // TODO: Static buffer? Can I move copy directly to pkt?
 
         if (!uart_irq_rx_ready(dev)) {
             continue;
@@ -137,30 +229,7 @@ static void interrupt_handler(const struct device *dev, void *user_data)
 
         while (len = uart_fifo_read(dev, buffer, sizeof(buffer))) {
             if (len > 0) {
-
-                // TODO: Get AF_... based on metadata
-                pkt = net_pkt_rx_alloc_with_buffer(global_iface, len, AF_INET6, 0, K_FOREVER);
-
-                if (net_pkt_write(pkt, buffer, len)) {
-                    goto drop;
-                }
-
-                // Pass frame down to OpenThread
-                if (!net_if_l2(global_iface) || !net_if_l2(global_iface)->send) {
-                    goto drop;
-                }
-
-                len = net_if_l2(global_iface)->send(global_iface, pkt);
-                if (len < 0) {
-                    goto drop;
-                }
-
-                continue;
-drop:
-                if (pkt) {
-                    net_pkt_unref(pkt);
-                }
-
+                rcvd_ser_data(buffer, len);
             }
         }
     }

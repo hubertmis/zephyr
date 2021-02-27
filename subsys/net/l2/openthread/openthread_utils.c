@@ -100,10 +100,13 @@ void pkt_list_remove_last(struct openthread_context *context)
 	context->pkt_list_full = 0U;
 }
 
+extern int net_remote_ipv6_addr_add(struct in6_addr * addr, enum net_addr_type addr_type, uint32_t vlifetime, bool mesh_local);
+
 void add_ipv6_addr_to_zephyr(struct openthread_context *context)
 {
 	const otNetifAddress *address;
-	struct net_if_addr *if_addr;
+	enum net_addr_type type;
+	bool mesh_local;
 
 	for (address = otIp6GetUnicastAddresses(context->instance);
 	     address; address = address->mNext) {
@@ -126,34 +129,46 @@ void add_ipv6_addr_to_zephyr(struct openthread_context *context)
 		 */
 		if ((address->mAddressOrigin == OT_ADDRESS_ORIGIN_THREAD) ||
 		    (address->mAddressOrigin == OT_ADDRESS_ORIGIN_SLAAC)) {
-			if_addr = net_if_ipv6_addr_add(
-					context->iface,
-					(struct in6_addr *)(&address->mAddress),
-					NET_ADDR_AUTOCONF, 0);
+			type = NET_ADDR_AUTOCONF;
 		} else if (address->mAddressOrigin ==
 			   OT_ADDRESS_ORIGIN_DHCPV6) {
-			if_addr = net_if_ipv6_addr_add(
-					context->iface,
-					(struct in6_addr *)(&address->mAddress),
-					NET_ADDR_DHCP, 0);
+			type = NET_ADDR_DHCP;
 		} else if (address->mAddressOrigin ==
 			  OT_ADDRESS_ORIGIN_MANUAL) {
-			if_addr = net_if_ipv6_addr_add(
-					context->iface,
-					(struct in6_addr *)(&address->mAddress),
-					NET_ADDR_MANUAL, 0);
+			type = NET_ADDR_MANUAL;
 		} else {
 			NET_ERR("Unknown OpenThread address origin ignored.");
 			continue;
 		}
+
+		mesh_local = is_mesh_local(
+					context, address->mAddress.mFields.m8);
+
+#ifdef CONFIG_NET_REMOTE
+        // TODO: Replace mesh_local with scope?
+        int result = net_remote_ipv6_addr_add(
+                (struct in6_addr *)(&address->mAddress),
+                type, 0, mesh_local);
+        
+		if (result) {
+			NET_ERR("Cannot add OpenThread unicast address");
+			continue;
+		}
+#else
+		struct net_if_addr *if_addr;
+
+		if_addr = net_if_ipv6_addr_add(
+				context->iface,
+				(struct in6_addr *)(&address->mAddress),
+				type, 0);
 
 		if (if_addr == NULL) {
 			NET_ERR("Cannot add OpenThread unicast address");
 			continue;
 		}
 
-		if_addr->is_mesh_local = is_mesh_local(
-					context, address->mAddress.mFields.m8);
+		if_addr->is_mesh_local = mesh_local;
+#endif
 	}
 }
 
