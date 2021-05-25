@@ -48,6 +48,12 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME, CONFIG_OPENTHREAD_L2_LOG_LEVEL);
 #define FRAME_TYPE_MASK 0x07
 #define FRAME_TYPE_ACK 0x02
 
+#define PROBING_IE_MAX_LENGTH (2U + 3U + 1U + 2U)
+#define PROBING_IE_DATA_OFFSET (2U + 3U + 1U)
+#define PROBING_IE_LQI_TAG 0x03
+#define PROBING_IE_LINK_MAR_TAG 0x02
+#define PROBING_IE_RSSI_TAG 0x01
+
 #if IS_ENABLED(CONFIG_NET_TC_THREAD_COOPERATIVE)
 #define OT_WORKER_PRIORITY K_PRIO_COOP(CONFIG_OPENTHREAD_THREAD_PRIORITY)
 #else
@@ -987,16 +993,21 @@ otError otPlatRadioEnableCsl(otInstance *aInstance, uint32_t aCslPeriod,
 			     const otExtAddress *aExtAddr)
 {
 	int result;
+	uint8_t ie[] = {0x04, 0x0D, 0x00, 0x00,
+			aCslPeriod & 0xFF, (aCslPeriod >> 8) & 0xFF};
+
+    uint16_t aShortAddress = 0; // TODO: Get correct value
 
 	ARG_UNUSED(aInstance);
 
 	struct ieee802154_config config = {
-		.csl_recv.period = aCslPeriod,
-		.csl_recv.addr = aExtAddr->m8,
+		.enh_ack.data = ie,
+		.enh_ack.data_len = sizeof(ie),
+		.enh_ack.short_addr = aShortAddress,
+		.enh_ack.ext_addr = aExtAddr->m8,
 	};
 
-	result = radio_api->configure(radio_dev, IEEE802154_CONFIG_CSL_RECEIVER,
-				      &config);
+	result = radio_api->configure(radio_dev, IEEE802154_CONFIG_ENH_ACK_HEADER_IE, &config);
 
 	return result ? OT_ERROR_FAILED : OT_ERROR_NONE;
 }
@@ -1026,18 +1037,37 @@ otError otPlatRadioConfigureEnhAckProbing(otInstance *aInstance, otLinkMetrics a
 					  const otExtAddress *aExtAddress)
 {
 	int result;
+	uint8_t ie_len = PROBING_IE_DATA_OFFSET;
+	uint8_t ie[PROBING_IE_MAX_LENGTH] = {0x00, 0x00, 0x9B, 0xB8, 0xEA, 0x00};
+
+	if (aLinkMetrics.mLqi) {
+		ie[ie_len++] = PROBING_IE_LQI_TAG;
+	}
+
+	if (aLinkMetrics.mLinkMargin) {
+		ie[ie_len++] = PROBING_IE_LINK_MAR_TAG;
+	}
+
+	if (aLinkMetrics.mLinkMargin) {
+		if (ie_len >= PROBING_IE_MAX_LENGTH) {
+			return OT_ERROR_FAILED;
+		}
+
+		ie[ie_len++] = PROBING_IE_RSSI_TAG;
+	}
+
+	ie[0] = ie_len - 2;
 
 	ARG_UNUSED(aInstance);
 
 	struct ieee802154_config config = {
-		.enh_ack.lqi = aLinkMetrics.mLqi,
-		.enh_ack.link_margin = aLinkMetrics.mLinkMargin,
-		.enh_ack.rssi = aLinkMetrics.mRssi,
+		.enh_ack.data = ie,
+		.enh_ack.data_len = ie_len,
 		.enh_ack.short_addr = aShortAddress,
 		.enh_ack.ext_addr = aExtAddress->m8,
 	};
 
-	result = radio_api->configure(radio_dev, IEEE802154_CONFIG_ENH_ACK_PROBING, &config);
+	result = radio_api->configure(radio_dev, IEEE802154_CONFIG_ENH_ACK_HEADER_IE, &config);
 
 	return result ? OT_ERROR_FAILED : OT_ERROR_NONE;
 }

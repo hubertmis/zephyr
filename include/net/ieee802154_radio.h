@@ -163,18 +163,13 @@ enum ieee802154_config_type {
 	/** Configure a radio reception slot */
 	IEEE802154_CONFIG_RX_SLOT,
 
-	/** Enable CSL receiver (Endpoint) */
-	IEEE802154_CONFIG_CSL_RECEIVER,
-
 	/** Configure the next CSL receive window center, in units of microseconds,
 	 *  based on the radio time.
 	 */
 	IEEE802154_CONFIG_CSL_RX_TIME,
 
-	/** Enable/disable or update Enhanced-ACK Based Probing in radio
-	 *  for a specific Initiator.
-	 */
-	IEEE802154_CONFIG_ENH_ACK_PROBING,
+	/** Set Header IE included in Enh-Acks sent to given peer. */
+	IEEE802154_CONFIG_ENH_ACK_HEADER_IE,
 };
 
 /** IEEE802.15.4 driver configuration data. */
@@ -231,11 +226,10 @@ struct ieee802154_config {
 		/** ``IEEE802154_CONFIG_CSL_RX_TIME`` */
 		uint32_t csl_rx_time;
 
-		/** ``IEEE802154_CONFIG_ENH_ACK_PROBING`` */
+		/** ``IEEE802154_CONFIG_ENH_ACK_HEADER_IE`` */
 		struct {
-			bool lqi : 1;
-			bool link_margin : 1;
-			bool rssi : 1;
+			const uint8_t *data;
+			size_t data_len;
 			uint16_t short_addr;
 			const uint8_t *ext_addr;
 		} enh_ack;
