@@ -205,7 +205,8 @@ static void vipm_nrf_##_idx##_register_callback(const struct device *dev, \
 									\
 static int vipm_nrf_##_idx##_set_enabled(const struct device *dev, int enable)\
 {									\
-	if (!IS_ENABLED(CONFIG_IPM_MSG_CH_##_idx##_RX)) {		\
+	if (!(IS_ENABLED(CONFIG_IPM_MSG_CH_##_idx##_RX) ||		\
+	      IS_ENABLED(CONFIG_IPM_MSG_CH_##_idx##_TX))) {		\
 		LOG_ERR("IPM_" #_idx " is TX message channel");		\
 		return -EINVAL;						\
 	} else if (enable) {						\
