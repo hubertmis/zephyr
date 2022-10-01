@@ -21,8 +21,7 @@ config IPC_SERVICE_BACKEND_ICMSG
 	default y
 	depends on MBOX
 	depends on DT_HAS_ZEPHYR_IPC_ICMSG_ENABLED
-	select SPSC_PBUF
-	select SPSC_PBUF_USE_CACHE
+	select ICMSG
 	help
 	  Chosing this backend results in single endpoint implementation based
 	  on circular packet buffer.
