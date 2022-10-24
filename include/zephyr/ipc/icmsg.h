@@ -41,6 +41,11 @@ struct icmsg_data_t {
 	atomic_t state;
 };
 
+struct icmsg_frag_t {
+	const void *data;
+	size_t len;
+};
+
 /** @brief Initialize an icmsg instance
  *
  *  This function is intended to be called during system initialization.
@@ -131,6 +136,29 @@ int icmsg_close(const struct icmsg_config_t *conf,
 int icmsg_send(const struct icmsg_config_t *conf,
 	       struct icmsg_data_t *dev_data,
 	       const void *msg, size_t len);
+
+/** @brief Send a message scattered in local memory to the remote icmsg instance.
+ *
+ *  @param[in] conf Structure containing configuration parameters for the icmsg
+ *                  instance being created.
+ *  @param[inout] dev_data Structure containing run-time data used by the icmsg
+ *                         instance. The structure is initialized with
+ *                         @ref icmsg_init and its content must be preserved
+ *                         while the icmsg instance is active.
+ *  @param[in] frags An array of fragments to send. Terminated with data == NULL
+ *                   entry.
+ *
+ *
+ *  @retval 0 on success.
+ *  @retval -EBUSY when the instance has not finished handshake with the remote
+ *                 instance.
+ *  @retval -ENODATA when the requested data to send is empty.
+ *  @retval -EBADMSG when the requested data to send is too big.
+ *  @retval other errno codes from dependent modules.
+ */
+int icmsg_send_frags(const struct icmsg_config_t *conf,
+		     struct icmsg_data_t *dev_data,
+		     const struct icmsg_frag_t *frags);
 
 /** @brief Clear memory in TX buffer.
  *

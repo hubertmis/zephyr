@@ -216,6 +216,53 @@ int icmsg_send(const struct icmsg_config_t *conf,
 	return sent_bytes;
 }
 
+int icmsg_send_frags(const struct icmsg_config_t *conf,
+		     struct icmsg_data_t *dev_data,
+		     const struct icmsg_frag_t *frags)
+{
+	int ret;
+	int sent_bytes;
+	char *pbuf;
+	size_t len = 0;
+
+	if (atomic_get(&dev_data->state) != ICMSG_STATE_READY) {
+		return -EBUSY;
+	}
+
+	for (const struct icmsg_frag_t *frag = frags;
+		       frag->data != NULL; frag++) {
+		len += frag->len;
+	}
+
+	/* Empty message is not allowed */
+	if (len == 0) {
+		return -ENODATA;
+	}
+
+	ret = spsc_pbuf_alloc(dev_data->tx_ib, len, &pbuf);
+	if (ret != len) {
+		return ret < 0 ? ret : -EBADMSG;
+	}
+
+	for (const struct icmsg_frag_t *frag = frags;
+		       frag->data != NULL; frag++) {
+		memcpy(pbuf, frag->data, frag->len);
+		pbuf += frag->len;
+	}
+
+	spsc_pbuf_commit(dev_data->tx_ib, len);
+	sent_bytes = len;
+
+	__ASSERT_NO_MSG(conf->mbox_tx.dev != NULL);
+
+	ret = mbox_send(&conf->mbox_tx, NULL);
+	if (ret) {
+		return ret;
+	}
+
+	return sent_bytes;
+}
+
 int icmsg_clear_tx_memory(const struct icmsg_config_t *conf)
 {
 	/* Clear spsc_pbuf header and a part of the magic number. */
