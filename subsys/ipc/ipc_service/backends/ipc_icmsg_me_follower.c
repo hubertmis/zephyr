@@ -13,7 +13,6 @@
 #define DT_DRV_COMPAT	zephyr_ipc_icmsg_me_follower
 
 #define INVALID_EPT_ID 255
-#define SEND_BUF_SIZE CONFIG_IPC_SERVICE_BACKEND_ICMSG_ME_SEND_BUF_SIZE
 #define NUM_EP        CONFIG_IPC_SERVICE_BACKEND_ICMSG_ME_NUM_EP
 #define EP_NAME_LEN   CONFIG_IPC_SERVICE_BACKEND_ICMSG_ME_EP_NAME_LEN
 
@@ -41,8 +40,6 @@ struct backend_data_t {
 
 	const struct ipc_ept_cfg *ept_disc_loc_cache[NUM_EP];
 	struct ept_disc_rmt_cache_t ept_disc_rmt_cache[NUM_EP];
-
-	uint8_t send_buffer[SEND_BUF_SIZE] __aligned(4);
 };
 
 static const struct ipc_ept_cfg *get_ept_cached_loc(
@@ -275,6 +272,7 @@ static int send(const struct device *instance, void *token,
 	const struct icmsg_config_t *conf = instance->config;
 	struct backend_data_t *dev_data = instance->data;
 	ept_id_t *id = token;
+	struct icmsg_frag_t frags[3];
 	int r;
 	int sent_bytes;
 
@@ -282,20 +280,17 @@ static int send(const struct device *instance, void *token,
 		return -ENOTCONN;
 	}
 
-	if (len >= SEND_BUF_SIZE - sizeof(ept_id_t)) {
-		return -EBADMSG;
-	}
-
 	k_mutex_lock(&dev_data->send_mutex, K_FOREVER);
 
-	/* TODO: Optimization: How to avoid this copying? */
-	/* Scatter list supported by icmsg? */
-	dev_data->send_buffer[0] = *id;
-	memcpy(dev_data->send_buffer + sizeof(ept_id_t), msg, len);
+	/* Use fragments to avoid copying to continuous buffer */
+	frags[0].data = id;
+	frags[0].len = sizeof(*id);
+	frags[1].data = msg;
+	frags[1].len = len;
+	frags[2].data = NULL;
+	frags[2].len = 0;
 
-	r = icmsg_send(conf, &dev_data->icmsg_data, dev_data->send_buffer,
-			len + sizeof(ept_id_t));
-
+	r = icmsg_send_frags(conf, &dev_data->icmsg_data, frags);
 	if (r > 0) {
 		sent_bytes = r - 1;
 	}

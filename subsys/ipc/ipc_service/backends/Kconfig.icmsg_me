@@ -3,16 +3,6 @@
 
 if IPC_SERVICE_BACKEND_ICMSG_ME_INITIATOR || IPC_SERVICE_BACKEND_ICMSG_ME_FOLLOWER
 
-config IPC_SERVICE_BACKEND_ICMSG_ME_SEND_BUF_SIZE
-	int "Size of sending buffer size"
-	range 1 65535
-	default 255
-	help
-	  Size of a static buffer used for preparring data to send in sending
-	  function. If you are sure that your application never sends data
-	  data bigger than some size, you can safely change this option to
-	  reduce RAM consumption in your application.
-
 config IPC_SERVICE_BACKEND_ICMSG_ME_NUM_EP
 	int "Endpoints number"
 	range 1 254

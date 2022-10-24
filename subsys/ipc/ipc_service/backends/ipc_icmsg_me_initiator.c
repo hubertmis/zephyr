@@ -12,7 +12,6 @@
 
 #define DT_DRV_COMPAT	zephyr_ipc_icmsg_me_initiator
 
-#define SEND_BUF_SIZE CONFIG_IPC_SERVICE_BACKEND_ICMSG_ME_SEND_BUF_SIZE
 #define NUM_EP        CONFIG_IPC_SERVICE_BACKEND_ICMSG_ME_NUM_EP
 #define EP_NAME_LEN   CONFIG_IPC_SERVICE_BACKEND_ICMSG_ME_EP_NAME_LEN
 
@@ -33,8 +32,6 @@ struct backend_data_t {
 	struct k_mutex send_mutex;
 	const struct ipc_ept_cfg *epts[NUM_EP];
 	ept_id_t ids[NUM_EP];
-
-	uint8_t send_buffer[SEND_BUF_SIZE] __aligned(4);
 };
 
 static void bound(void *priv)
@@ -167,24 +164,21 @@ static int send(const struct device *instance, void *token,
 	const struct icmsg_config_t *conf = instance->config;
 	struct backend_data_t *dev_data = instance->data;
 	ept_id_t *id = token;
+	struct icmsg_frag_t frags[3];
 	int r;
 	int sent_bytes;
 
-	if (len >= SEND_BUF_SIZE - sizeof(ept_id_t)) {
-		return -EBADMSG;
-	}
-
 	k_mutex_lock(&dev_data->send_mutex, K_FOREVER);
 
-	/* TODO: Optimization: How to avoid this copying? */
-	/* We could implement scatter list for icmsg_send, but it would require
-	 * scatter list also for SPSC buffer implementation.
-	 */
-	dev_data->send_buffer[0] = *id;
-	memcpy(dev_data->send_buffer + sizeof(ept_id_t), msg, len);
+	/* Use fragments to avoid copying to continuous buffer */
+	frags[0].data = id;
+	frags[0].len = sizeof(*id);
+	frags[1].data = msg;
+	frags[1].len = len;
+	frags[2].data = NULL;
+	frags[2].len = 0;
 
-	r = icmsg_send(conf, &dev_data->icmsg_data, dev_data->send_buffer,
-			len + sizeof(ept_id_t));
+	r = icmsg_send_frags(conf, &dev_data->icmsg_data, frags);
 	if (r > 0) {
 		sent_bytes = r - 1;
 	}
