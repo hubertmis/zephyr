@@ -1,0 +1,11 @@
+common:
+    tags: ipc
+    harness: remote
+sample:
+    name: IPC Service example integration (any backend)
+tests:
+    sample.ipc.ipc_service.icmsg_me:
+        extra_args: BACKEND=icmsg_me
+        platform_allow: nrf5340dk_nrf5340_cpuapp
+        integration_platforms:
+          - nrf5340dk_nrf5340_cpuapp
